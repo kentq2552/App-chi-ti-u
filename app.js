@@ -7,8 +7,38 @@ const CATS=[
   {id:"khac",name:"Khác",c:"#7A857F"}];
 const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
 const $=s=>document.querySelector(s);
-const fmt=n=>Math.round(n||0).toLocaleString("vi-VN")+"đ";
-const parseAmt=s=>parseInt(String(s).replace(/\D/g,""),10)||0;
+/* ---------- money ---------- */
+const CURRENCIES=[["VND","Việt Nam đồng"],["USD","Đô la Mỹ"],["EUR","Euro"],["JPY","Yên Nhật"],["KRW","Won Hàn Quốc"],
+  ["CNY","Nhân dân tệ"],["THB","Baht Thái"],["SGD","Đô Singapore"],["TWD","Đài tệ"],["HKD","Đô Hồng Kông"],
+  ["MYR","Ringgit Malaysia"],["IDR","Rupiah Indonesia"],["PHP","Peso Philippines"],["LAK","Kíp Lào"],["KHR","Riel Campuchia"],
+  ["GBP","Bảng Anh"],["AUD","Đô Úc"],["CAD","Đô Canada"],["CHF","Franc Thụy Sĩ"],["INR","Rupee Ấn Độ"],["AED","Dirham UAE"],["RUB","Rúp Nga"]];
+const decCache={};
+const decOf=c=>decCache[c]??=new Intl.NumberFormat("en",{style:"currency",currency:c}).resolvedOptions().maximumFractionDigits;
+const roundTo=(v,c)=>{const k=10**decOf(c);return Math.round(v*k)/k};
+const mainCur=()=>settings.cur||"VND";
+const symOf=c=>c==="VND"?"đ":(new Intl.NumberFormat("vi-VN",{style:"currency",currency:c,currencyDisplay:"narrowSymbol"}).formatToParts(0).find(p=>p.type==="currency")?.value||c);
+function money(n,c=mainCur()){
+  if(c==="VND")return Math.round(n||0).toLocaleString("vi-VN")+"đ";
+  return new Intl.NumberFormat("vi-VN",{style:"currency",currency:c,minimumFractionDigits:0,maximumFractionDigits:decOf(c)}).format(n||0);
+}
+const fmt=n=>money(n);
+// Read what was typed: "1.250.000", "12,5", "12.50", "1,234.5" all work.
+function parseMoney(s,c=mainCur()){
+  if(decOf(c)===0)return parseInt(String(s??"").replace(/\D/g,""),10)||0;
+  return roundTo(parseNum(s),c);
+}
+function parseNum(s){
+  let t=String(s??"").replace(/[^\d.,]/g,"");
+  if(!t)return 0;
+  const lastDot=t.lastIndexOf("."), lastComma=t.lastIndexOf(",");
+  if(lastDot>=0&&lastComma>=0){const dec=lastDot>lastComma?".":",";t=t.split(dec===","?".":",").join("").replace(dec,".")}
+  else if(lastComma>=0)t=t.replace(/,/g,(m,i)=>i===lastComma?".":"");
+  else if(/^\d{1,3}(\.\d{3})+$/.test(t))t=t.replace(/\./g,"");
+  return parseFloat(t)||0;
+}
+// Show thousands separators while typing, for currencies without decimals.
+function showInput(n,c=mainCur()){return n?(decOf(c)===0?n.toLocaleString("vi-VN"):String(n).replace(".",",")):""}
+const parseAmt=s=>parseMoney(s);
 const keyOf=p=>p.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/đ/g,"d").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pad=n=>String(n).padStart(2,"0");
@@ -63,7 +93,7 @@ function monthLabel(m){return "Tháng "+(m.getMonth()+1)+"/"+m.getFullYear()}
 function badge(cat){const c=catOf(cat);return `<span class="badge" style="background:${c.c}">${esc(c.name.split(" ").map(w=>w[0]).join("").slice(0,2))}</span>`}
 function txRow(e){
   const c=catOf(e.cat), d=new Date(e.ts);
-  const sub=[pad(d.getHours())+":"+pad(d.getMinutes()),c.name,e.note].filter(Boolean).join(" · ");
+  const sub=[pad(d.getHours())+":"+pad(d.getMinutes()),e.cur?money(e.orig,e.cur):c.name,e.note].filter(Boolean).join(" · ");
   return `<button class="tx" data-id="${esc(e.id)}">${badge(e.cat)}<span class="main"><span class="t1">${esc(e.place||c.name)}</span><span class="t2">${esc(sub)}</span></span><span class="amt num money">−${fmt(e.amount)}</span></button>`;
 }
 function dayGroups(list){
@@ -93,7 +123,12 @@ function render(){
   $("#acctPinOff").hidden=!me.pin;
   $("#monthLbl").textContent=monthLabel(m);
   $("#nextM").disabled=isCur;
-  $("#spent").innerHTML=Math.round(spent).toLocaleString("vi-VN")+"<small>đ</small>";
+  $("#spent").textContent=fmt(spent);
+  $("#budgetLbl").textContent=`Hạn mức (${symOf(mainCur())})`;
+  if(document.activeElement!==$("#mainCur"))$("#mainCur").value=mainCur();
+  $("#mainCurSave").hidden=$("#mainCur").value===mainCur();
+  const foreign=new Set(expenses.filter(e=>e.cur).map(e=>e.cur));
+  $("#curInfo").textContent=`Mọi tổng chi, hạn mức và khoản cố định tính bằng ${symOf(mainCur())} (${mainCur()}). Khi ghi, bạn chọn được loại tiền khác; sổ quy đổi theo tỷ giá lúc ghi.${foreign.size?" Sổ đang có khoản chi bằng: "+[...foreign].join(", ")+".":""}`;
   $("#perday").textContent=fmt(spent/daysGone);
   // forecast: day-rate of variable spending, plus fixed items (paid or still due)
   const fixedThis=list.filter(e=>e.fixedId).reduce((s,e)=>s+e.amount,0);
@@ -112,7 +147,7 @@ function render(){
     const st=r>=1?["bad","Đã vượt "+fmt(spent-b)]:(isCur&&fc>b)?["warn","Có thể vượt "+fmt(fc-b)]:r>=.8?["warn","Sắp chạm hạn mức"]:["ok","Còn "+fmt(b-spent)];
     $("#budgetPill").innerHTML=`<span class="pill ${st[0]} money">${st[1]}</span>`;
   }
-  if(document.activeElement!==$("#budgetIn"))$("#budgetIn").value=b?b.toLocaleString("vi-VN"):"";
+  if(document.activeElement!==$("#budgetIn"))$("#budgetIn").value=showInput(b);
   // categories
   const by={};for(const e of list)by[e.cat]=(by[e.cat]||0)+e.amount;
   const rows=Object.entries(by).sort((a,b)=>b[1]-a[1]);
@@ -173,7 +208,13 @@ function openSheet(e,prefill){
   editingId=e?e.id:null; userPickedCat=!!e; pickedCat=e?e.cat:null;
   const p=e||prefill||{};
   $("#sheetTitle").textContent=e?"Sửa khoản chi":"Thêm khoản chi";
-  $("#amt").value=p.amount?p.amount.toLocaleString("vi-VN"):"";
+  const known=c=>CURRENCIES.some(x=>x[0]===c);
+  sheetCur=e?(e.cur||mainCur()):known(p.cur)?p.cur:known(settings.lastCur)?settings.lastCur:mainCur();
+  const shown=e?.cur?e.orig:p.amount;
+  $("#curSel").innerHTML=curOptions(sheetCur);
+  $("#amt").value=showInput(shown,sheetCur);
+  $("#rate").value=e?.rate?fmtRate(e.rate):"";
+  setSheetCur(sheetCur,!e?.rate);
   $("#place").value=p.place||""; $("#note").value=p.note||"";
   $("#when").value=toLocalInput(p.ts?new Date(p.ts):new Date());
   $("#autonote").textContent="";
@@ -198,12 +239,77 @@ $("#closeSheet").onclick=closeSheet; $("#scrim").onclick=closeSheet;
 document.addEventListener("click",ev=>{
   const t=ev.target.closest(".tx"); if(t){const e=expenses.find(x=>x.id===t.dataset.id);if(e)openSheet(e)}
 });
-for(const id of ["#amt","#fxAmt","#budgetIn"])$(id).addEventListener("input",ev=>{const n=parseAmt(ev.target.value);ev.target.value=n?n.toLocaleString("vi-VN"):""});
-document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
-  const a=b.dataset.add, cur=parseAmt($("#amt").value);
-  const n=a==="clear"?0:a==="000"?cur*1000:cur+parseInt(a,10);
-  $("#amt").value=n?n.toLocaleString("vi-VN"):"";
-});
+for(const id of ["#fxAmt","#budgetIn"])$(id).addEventListener("input",ev=>{if(decOf(mainCur())===0)ev.target.value=showInput(parseMoney(ev.target.value))});
+$("#amt").addEventListener("input",ev=>{if(decOf(sheetCur)===0)ev.target.value=showInput(parseMoney(ev.target.value,sheetCur),sheetCur);showConverted()});
+
+/* currency inside the add sheet */
+let sheetCur="VND";
+const curOptions=sel=>CURRENCIES.map(([c,n])=>`<option value="${c}" ${c===sel?"selected":""}>${c} · ${n}</option>`).join("");
+const BIG=new Set(["VND","IDR","LAK","KHR","KRW"]), MID=new Set(["JPY","TWD","INR","PHP","THB","RUB"]);
+function drawChips(){
+  const steps=BIG.has(sheetCur)?[["000",",000"],["10000","+10k"],["20000","+20k"],["50000","+50k"],["100000","+100k"]]
+    :MID.has(sheetCur)?[["100","+100"],["500","+500"],["1000","+1.000"],["5000","+5.000"]]
+    :[["1","+1"],["5","+5"],["10","+10"],["50","+50"],["100","+100"]];
+  $("#chips").innerHTML=[...steps,["clear","Xóa số"]].map(([a,l])=>`<button class="chip" data-add="${a}">${l}</button>`).join("");
+}
+$("#chips").onclick=ev=>{
+  const b=ev.target.closest("[data-add]");if(!b)return;
+  const a=b.dataset.add, cur=parseMoney($("#amt").value,sheetCur);
+  const n=a==="clear"?0:a==="000"?cur*1000:roundTo(cur+parseFloat(a),sheetCur);
+  $("#amt").value=showInput(n,sheetCur);showConverted();
+};
+function sheetRate(){return parseNum($("#rate").value)}
+const fmtRate=v=>v.toLocaleString("vi-VN",{maximumSignificantDigits:8});
+function showConverted(){
+  if(sheetCur===mainCur()){$("#converted").textContent="";return}
+  const a=parseMoney($("#amt").value,sheetCur), r=sheetRate();
+  $("#converted").textContent=a&&r?"≈ "+money(roundTo(a*r,mainCur())):"";
+}
+async function setSheetCur(c,fetchRate){
+  sheetCur=c;
+  $("#curSym").textContent=symOf(c);
+  $("#amt").setAttribute("inputmode",decOf(c)===0?"numeric":"decimal");
+  drawChips();
+  const foreign=c!==mainCur();
+  $("#rateBox").hidden=!foreign;
+  if(!foreign){showConverted();return}
+  $("#rateLbl").textContent=`1 ${c} =`;
+  $("#rateUnit").textContent=symOf(mainCur());
+  if(fetchRate){
+    const want=c;
+    const cached=lsGet("sochi.rates."+mainCur());
+    if(cached?.rates?.[c])fillRate(cached,c);else{$("#rate").value="";$("#rateNote").textContent="Đang lấy tỷ giá…"}
+    const fresh=await getRates(mainCur());
+    if(sheetCur!==want)return;
+    if(fresh?.rates?.[c])fillRate(fresh,c);
+    else if(!cached?.rates?.[c])$("#rateNote").textContent="Không lấy được tỷ giá, hãy nhập tay";
+  }else $("#rateNote").textContent="Tỷ giá đã lưu với khoản này";
+  showConverted();
+}
+function fillRate(r,c){
+  $("#rate").value=fmtRate(1/r.rates[c]);
+  $("#rateNote").textContent="Tỷ giá ngày "+new Date(r.t).toLocaleDateString("vi-VN")+", sửa được";
+  showConverted();
+}
+$("#curSel").onchange=ev=>{
+  const old=sheetCur, a=parseMoney($("#amt").value,old);
+  setSheetCur(ev.target.value,true);
+  $("#amt").value=showInput(roundTo(a,sheetCur),sheetCur);
+};
+$("#rate").addEventListener("input",()=>{$("#rateNote").textContent="Tỷ giá nhập tay";showConverted()});
+
+/* exchange rates: free public feed, cached on the phone for 12 hours */
+const RATE_TTL=12*3600e3;
+async function getRates(base){
+  const key="sochi.rates."+base, cached=lsGet(key);
+  if(cached&&Date.now()-cached.t<RATE_TTL)return cached;
+  try{
+    const r=await fetch("https://open.er-api.com/v6/latest/"+base,{cache:"no-store"});
+    const j=await r.json();
+    if(j.result!=="success"||!j.rates)throw 0;
+    const v={t:Date.now(),rates:j.rates};lsSet(key,v);return v;
+  }catch{return cached}
+}
 $("#catgrid").onclick=ev=>{const b=ev.target.closest("[data-cat]");if(!b)return;pickedCat=b.dataset.cat;userPickedCat=true;$("#autonote").textContent="";drawCats()};
 $("#place").addEventListener("input",()=>{
   const auto=!!$("#autonote").textContent;
@@ -224,18 +330,23 @@ function learn(place,cat){
 }
 
 $("#saveTx").onclick=()=>{
-  const amount=parseAmt($("#amt").value);
-  if(!amount){toast("Nhập số tiền trước đã");$("#amt").focus();return}
+  const orig=parseMoney($("#amt").value,sheetCur);
+  if(!orig){toast("Nhập số tiền trước đã");$("#amt").focus();return}
+  const foreign=sheetCur!==mainCur(), rate=foreign?sheetRate():1;
+  if(foreign&&!rate){toast("Nhập tỷ giá để quy đổi");$("#rate").focus();return}
   if(!pickedCat){toast("Chọn một danh mục");return}
+  const amount=foreign?roundTo(orig*rate,mainCur()):orig;
   const place=$("#place").value.trim(), note=$("#note").value.trim();
   const ts=new Date($("#when").value).getTime()||Date.now();
   const old=editingId?expenses.find(e=>e.id===editingId):null;
   const doc={amount,cat:pickedCat,place,note,ts};
+  if(foreign)Object.assign(doc,{cur:sheetCur,orig,rate});
+  if(!editingId)settings.lastCur=sheetCur;
   if(old?.fixedId)doc.fixedId=old.fixedId;
   const learned=place&&userPickedCat?learn(place,pickedCat):false;
   if(editingId)store.update(editingId,doc);else store.add(doc);
   closeSheet();
-  toast(learned?`Đã lưu. Lần sau “${place}” tự vào ${catOf(pickedCat).name}`:"Đã lưu "+fmt(amount));
+  toast(learned?`Đã lưu. Lần sau “${place}” tự vào ${catOf(pickedCat).name}`:"Đã lưu "+money(orig,sheetCur)+(foreign?" ≈ "+fmt(amount):""));
 };
 $("#delTx").onclick=()=>{
   const b=$("#delTx");
@@ -261,6 +372,31 @@ $("#fixedList").onclick=ev=>{
 $("#rules").onclick=ev=>{const b=ev.target.closest("[data-rdel]");if(!b)return;delete settings.rules[b.dataset.rdel];store.saveSettings()};
 $("#budgetSave").onclick=()=>{settings.budget=parseAmt($("#budgetIn").value);$("#budgetIn").blur();store.saveSettings();toast(settings.budget?"Đã đặt hạn mức "+fmt(settings.budget):"Đã bỏ hạn mức")};
 
+/* ---------- main currency: changing it converts the whole book ---------- */
+$("#mainCur").innerHTML=curOptions("VND");
+$("#mainCur").onchange=()=>{const b=$("#mainCurSave");b.hidden=$("#mainCur").value===mainCur();b.classList.remove("armed");b.textContent="Đổi"};
+$("#mainCurSave").onclick=async()=>{
+  const b=$("#mainCurSave"), from=mainCur(), to=$("#mainCur").value;
+  if(to===from)return;
+  if(expenses.length||settings.budget||settings.fixed.length){
+    if(!b.classList.contains("armed")){b.classList.add("armed");b.textContent="Quy đổi cả sổ?";toast(`Bấm lần nữa: mọi số tiền sẽ quy đổi từ ${from} sang ${to}`);return}
+  }
+  b.textContent="Đang lấy tỷ giá…";
+  const r=await getRates(from), x=r?.rates?.[to];
+  b.classList.remove("armed");b.textContent="Đổi";
+  if(!x){toast("Cần kết nối mạng để lấy tỷ giá quy đổi");return}
+  const conv=v=>roundTo(v*x,to);
+  expenses=expenses.map(e=>{
+    if(e.cur===to){const {cur,orig,rate,...rest}=e;return {...rest,amount:orig}}
+    if(e.cur)return {...e,amount:conv(e.amount),rate:e.rate*x};
+    return {...e,amount:conv(e.amount),cur:from,orig:e.amount,rate:x};   // keep the original as it was written
+  });
+  settings.budget=conv(settings.budget||0);
+  settings.fixed=settings.fixed.map(f=>({...f,amount:conv(f.amount)}));
+  settings.cur=to;
+  persist();toast(`Đã đổi tiền tệ chính sang ${to}`);
+};
+
 /* ---------- backup / restore / csv ---------- */
 async function shareFile(name,text,type){
   const file=new File([text],name,{type});
@@ -277,8 +413,8 @@ $("#backupBtn").onclick=async()=>{
 };
 $("#csvBtn").onclick=()=>{
   const q=s=>'"'+String(s??"").replace(/"/g,'""')+'"';
-  const body=[...expenses].sort((a,b)=>a.ts-b.ts).map(e=>{const d=new Date(e.ts);return [`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,pad(d.getHours())+":"+pad(d.getMinutes()),e.amount,q(catOf(e.cat).name),q(e.place),q(e.note)].join(",")}).join("\n");
-  shareFile(`so-chi-tieu-${stamp()}.csv`,"﻿Ngày,Giờ,Số tiền,Danh mục,Nơi chi,Ghi chú\n"+body,"text/csv");
+  const body=[...expenses].sort((a,b)=>a.ts-b.ts).map(e=>{const d=new Date(e.ts);return [`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,pad(d.getHours())+":"+pad(d.getMinutes()),e.amount,e.cur?e.orig:"",e.cur||"",e.rate||"",q(catOf(e.cat).name),q(e.place),q(e.note)].join(",")}).join("\n");
+  shareFile(`so-chi-tieu-${stamp()}.csv`,`﻿Ngày,Giờ,Số tiền (${mainCur()}),Tiền gốc,Loại tiền gốc,Tỷ giá,Danh mục,Nơi chi,Ghi chú\n`+body,"text/csv");
 };
 $("#restoreBtn").onclick=()=>$("#restoreFile").click();
 $("#restoreFile").onchange=async ev=>{
@@ -298,7 +434,8 @@ $("#restoreFile").onchange=async ev=>{
 function readLink(){
   const q=new URLSearchParams(location.search);
   if(!q.has("amt"))return;
-  const pre={amount:parseAmt(q.get("amt")),place:(q.get("place")||"").slice(0,80),note:(q.get("note")||"").slice(0,120)};
+  const cur=(q.get("cur")||"").toUpperCase();
+  const pre={cur,amount:parseMoney(q.get("amt"),CURRENCIES.some(x=>x[0]===cur)?cur:mainCur()),place:(q.get("place")||"").slice(0,80),note:(q.get("note")||"").slice(0,120)};
   history.replaceState(null,"",location.pathname);
   if(pre.amount)openSheet(null,pre);
 }

@@ -156,6 +156,11 @@ label.f input,label.f select{font:inherit;font-size:16px;font-weight:400;color:v
 .err{color:var(--bad);font-size:13px;text-align:center;min-height:18px}
 .who{border:0;background:none;padding:0;text-align:left;display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
 .who b{color:var(--ink);font-weight:600}
+.cursel{border:1px solid var(--line);background:var(--sunk);color:var(--ink);border-radius:10px;font:inherit;font-size:14px;font-weight:600;padding:6px 8px;align-self:center;width:92px;flex:none;text-overflow:ellipsis}
+.ratebox{background:var(--sunk);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.ratebox input{flex:1;min-width:0;font:inherit;font-size:16px;font-weight:600;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+.ratenote{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.ratenote b{color:var(--ink);font-size:14px}
 #bgLayer{position:fixed;inset:0;z-index:-1;background-size:cover;background-position:center}
 #bgLayer::after{content:"";position:absolute;inset:0;background:var(--bg);opacity:var(--veil,.55)}
 body.hasbg{background:transparent}
@@ -287,10 +292,18 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <input type="file" id="iconFile" accept="image/*" hidden>
     </section>
     <section class="card">
+      <h2>Tiền tệ</h2>
+      <p class="hint" id="curInfo"></p>
+      <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
+        <label class="f" style="flex:1">Tiền tệ chính của sổ<select id="mainCur"></select></label>
+        <button class="small on" id="mainCurSave" style="padding:10px 14px" hidden>Đổi</button>
+      </div>
+    </section>
+    <section class="card">
       <h2>Hạn mức mỗi tháng</h2>
       <p class="hint">Sổ báo vàng khi đã chi 80% hạn mức, báo đỏ khi vượt.</p>
       <div class="row" style="align-items:flex-end;flex-wrap:nowrap">
-        <label class="f" style="flex:1">Hạn mức (đ)<input id="budgetIn" inputmode="numeric" placeholder="10.000.000"></label>
+        <label class="f" style="flex:1"><span id="budgetLbl">Hạn mức (đ)</span><input id="budgetIn" inputmode="numeric" placeholder="10.000.000"></label>
         <button class="small on" id="budgetSave" style="padding:10px 14px">Lưu</button>
       </div>
     </section>
@@ -330,15 +343,17 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <h2 id="sheetTitle">Thêm khoản chi</h2>
       <button class="small" id="closeSheet">Đóng</button>
     </div>
-    <div class="amountbox"><input id="amt" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Số tiền"><span>đ</span></div>
-    <div class="chips">
-      <button class="chip" data-add="000">,000</button>
-      <button class="chip" data-add="10000">+10k</button>
-      <button class="chip" data-add="20000">+20k</button>
-      <button class="chip" data-add="50000">+50k</button>
-      <button class="chip" data-add="100000">+100k</button>
-      <button class="chip" data-add="clear">Xóa số</button>
+    <div class="amountbox"><input id="amt" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="Số tiền"><span id="curSym">đ</span>
+      <select id="curSel" class="cursel" aria-label="Loại tiền"></select></div>
+    <div class="ratebox" id="rateBox" hidden>
+      <div class="row" style="flex-wrap:nowrap">
+        <span class="num" id="rateLbl">1 USD =</span>
+        <input id="rate" inputmode="decimal" autocomplete="off" aria-label="Tỷ giá">
+        <span id="rateUnit">đ</span>
+      </div>
+      <div class="ratenote"><span id="rateNote"></span><b class="num money" id="converted"></b></div>
     </div>
+    <div class="chips" id="chips"></div>
     <label class="f">Chi ở đâu / cho ai<input id="place" list="placeList" autocomplete="off" placeholder="Cà phê Bong Bóng"></label>
     <datalist id="placeList"></datalist>
     <div class="autonote" id="autonote"></div>
